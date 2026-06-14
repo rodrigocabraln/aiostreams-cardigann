@@ -140,6 +140,11 @@ search:
       filters:
         - name: split                 # keep the first line if any slipped through
           args: ["\n", 0]
+        # Strip a trailing video/disc extension. AIOStreams' filename is the FILE
+        # (e.g. "...TombDoc.mkv"); *arr needs the release name without it, or the
+        # download client makes a folder ending in ".mkv" and import fails.
+        - name: re_replace
+          args: ["(?i)(\\.(mkv|mp4|avi|m4v|mov|wmv|ts|m2ts|mpg|mpeg|flv|webm|vob|iso))+$", ""]
 
     # --- size: streamData.size -> behaviorHints.videoSize -> 0 (always parseable) ---
     _size:
