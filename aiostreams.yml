@@ -91,12 +91,25 @@ search:
     missingAttributeEqualsNoResults: true
 
   fields:
-    # NOTE on templates: Cardigann's engine only supports SINGLE-level
-    # `{{ if .X }}..{{ else }}..{{ end }}` (no nesting, no "else if"). For
-    # multi-source fallbacks we use the `or` logic function, which returns the
-    # first non-empty variable. default:"" keeps each helper defined.
+    # EVERY selector is `optional` so AIOStreams' info/statistic rows (which have
+    # no streamData/filename) don't abort parsing. Cardigann's template engine only
+    # does single-level if/else; multi-source fallbacks use the `or` function.
 
-    # --- infohash: first non-empty of nested -> top-level -> url, then extract ---
+    # --- title: the release filename (with extension). Simple selector + trim. ---
+    title:
+      selector: behaviorHints.filename
+      optional: true
+      default: "Unknown Title"
+      filters:
+        - name: trim
+
+    # --- size: simple, always present, non-streamData. ---
+    size:
+      selector: behaviorHints.videoSize
+      optional: true
+
+    # --- infohash: this is what turns a stream into a usable torrent, so cover the
+    #     most sources for MAX torrents: streamData hash -> top-level -> hash in url. ---
     _hash_nested:
       selector: streamData.torrent.infoHash
       optional: true
@@ -117,52 +130,8 @@ search:
         - name: regexp
           args: "\\b([a-fA-F0-9]{40})\\b"
 
-    # --- title: parsed filename -> raw filename -> name parsed from description.
-    #     We do NOT fall back to the stream `name` field: in AIOStreams that holds
-    #     the provider/quality (e.g. "Comet ⚡ 2160p"), not the release. ---
-    _filename:
-      selector: streamData.filename
-      optional: true
-      default: ""
-    _bh_filename:
-      selector: behaviorHints.filename
-      optional: true
-      default: ""
-    _desc_name:
-      selector: description
-      optional: true
-      default: ""
-      filters:
-        - name: regexp                # description line "📄 Name: <release>"
-          args: "Name:\\s*([^\\n]+)"
-    title:
-      text: "{{ or (.Result._filename) (.Result._bh_filename) (.Result._desc_name) }}"
-      filters:
-        - name: split                 # keep the first line if any slipped through
-          args: ["\n", 0]
-        # Strip a trailing video/disc extension. AIOStreams' filename is the FILE
-        # (e.g. "...TombDoc.mkv"); *arr needs the release name without it, or the
-        # download client makes a folder ending in ".mkv" and import fails.
-        - name: re_replace
-          args: ["(?i)(\\.(mkv|mp4|avi|m4v|mov|wmv|ts|m2ts|mpg|mpeg|flv|webm|vob|iso))+$", ""]
-
-    # --- size: streamData.size -> behaviorHints.videoSize -> 0 (always parseable) ---
-    _size:
-      selector: streamData.size
-      optional: true
-      default: ""
-    _videoSize:
-      selector: behaviorHints.videoSize
-      optional: true
-      default: ""
-    _rootSize:
-      selector: size                  # defensive; default 0 = final parseable fallback
-      optional: true
-      default: "0"
-    size:
-      text: "{{ or (.Result._size) (.Result._videoSize) (.Result._rootSize) }}"
-
-    # --- seeders: real value if present, else the configured fallback ---
+    # --- seeders: real count if AIOStreams reports it, else the configured
+    #     fallback (debrid items often have none; *arr needs a value to accept). ---
     _seeders:
       selector: streamData.torrent.seeders
       optional: true
@@ -172,8 +141,8 @@ search:
     leechers:
       text: "0"
 
-    # --- category (REQUIRED): TV if AIOStreams parsed a season/episode, or the
-    #     title has a season/episode marker; otherwise Movies. ---
+    # --- category: TV if AIOStreams parsed a season/episode (when streamData is
+    #     present), else a season/episode marker in the title; otherwise Movies. ---
     _seasons:
       selector: streamData.parsedFile.seasons
       optional: true
@@ -189,6 +158,18 @@ search:
           args: "\\b(S\\d{1,3}(E\\d{1,4})?|Season[ ._]?\\d+|\\d{1,2}x\\d{1,3})\\b"
     category:
       text: "{{ if or (.Result._seasons) (.Result._episodes) (.Result._is_tv) }}TV{{ else }}Movies{{ end }}"
+
+    # Fixed valid publish date so every item has a parseable date (AIOStreams
+    # streams carry no upload date).
+    date:
+      text: "Apr. 18th '11"
+      filters:
+        - name: re_replace
+          args: ["st|nd|rd|th", ""]
+        - name: replace
+          args: ["'", ""]
+        - name: dateparse
+          args: "MMM. d yy"
 
     # No download/magnet field is needed: Prowlarr auto-builds the magnet from the
     # infohash field (this is why `type: public` is required).
